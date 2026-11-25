@@ -25,6 +25,8 @@
 
 **本地题库沉淀**：提交过的题自动存成本地 JSONL，下次遇到同题直接命中生成答案文件，不依赖任何第三方服务。
 
+**课程资源抓取与文本化**：跨课程列出待办与截止时间，下载 PPT/PDF/DOCX 原件并抽成文本；还能在不打开卷子的情况下读题，避免白启动计时。
+
 **诊断与抓包**：页面状态体检、逐题 DOM 探针、API 请求记录，遇到平台改版能自己排查。
 
 不支持：排序、编程、题组、讨论帖（讨论帖对同学可见，不做自动化）。
@@ -60,6 +62,8 @@ node scripts/quiz.mjs prompt                # 出待答清单，交给 AI 或人
 node scripts/whut.mjs fill answers.json     # 填 → 逐槽位校验
 node scripts/whut.mjs submit answers.json   # 人工核对后提交
 node scripts/quiz.mjs save answers.json     # 沉淀进题库
+node scripts/resources.mjs tasks --due 2026-11-26                 # 看哪天有什么要交
+node scripts/resources.mjs get 第七章 --course <课程> --text        # 抓课件原件并转文本
 ```
 
 环境要求：Node.js 22+（需全局 WebSocket）。全部命令与参数见 [SKILL.md](SKILL.md)，踩坑实录见 [references/pitfalls.md](references/pitfalls.md)。

@@ -5,7 +5,7 @@ argument-hint: "<check|tasks|open-task|enter|state|probe|fill|submit|watch|unloc
 license: MIT
 compatibility: Node.js 22+ (global WebSocket) and Microsoft Edge/Chrome started with --remote-debugging-port=9222. Tested on Windows with Edge.
 metadata:
-  version: "1.3.0"
+  version: "1.4.0"
   platform: "whut.ai-augmented.com"
   language: "zh-CN"
 ---
@@ -141,6 +141,34 @@ node scripts/watch.mjs status ["<标题>"]      # 读当前 /resource/ 标签的
 标签页卫生：Edge 在**最后一个标签页关闭时会直接退出**，脚本维护一个"保活首页标签"，
 关任何页面前先确认它还在；创建失败就宁可不关。手工操作时也别把最后一个标签清掉。
 
+## 课程资源、任务与附件（resources.mjs）
+
+`scripts/resources.mjs` 负责"要材料、找 deadline、离线读题"这类不涉及答题的操作。它不依赖页面 JS：
+cookie 走 CDP `Network.getCookies`，数据走 Node fetch（资源查看页会挂起 `Runtime.evaluate`，别在那种页上 eval）。
+接口细节见 `references/endpoints.md`。
+
+```bash
+node scripts/resources.mjs courses                          # 在修课程：id / 名称
+node scripts/resources.mjs tasks --due 2026-11-26           # 全课程按截止日筛未完成任务
+node scripts/resources.mjs tasks --course 保险学B --all      # 单课全部任务（含已完成）
+node scripts/resources.mjs files --course 跨国公司金融管理    # 列可下载资源（node / quote_id / 章节路径）
+node scripts/resources.mjs get "chapter12" --course 跨国公司金融管理 --out ./slides --text
+node scripts/resources.mjs text ./slides/a.ppt ./slides/b.docx --out ./notes
+node scripts/resources.mjs docx answer.html --out answer.docx          # 附件题：HTML → docx
+node scripts/resources.mjs paper 7089429698714814065 --course 跨国公司金融管理   # 读题，不建记录、不计时
+```
+
+要点：
+
+- 下载只认 `cloud/file_down/<quote_id>/v2`（返回签名 OSS 直链）。`cloud/file_access` 是**预览**接口，
+  PPT/PDF 会返回「该资源不支持预览」的 HTML；`/v3` 是加密串，`/v1` 已废弃。
+- `paper` 只读 `queryResource/v3` + `flow/v2`，不会触发 `createRecord`，所以可以先离线写完答案再开卷。
+  输出里的 `sampling` / `random_rule` 用来判断重做会不会换题（详见 `references/endpoints.md`）。
+- 文本抽取：OOXML（pptx/docx/xlsx）内置解压无依赖；旧版 `.ppt/.doc` 和 `html→docx` 需要本机
+  LibreOffice（`SOFFICE` 可指定路径），PDF 需要 `pdftotext`。
+- 附件题（type 7）先用 `docx` 生成文件，再把绝对路径交给 `whut.mjs fill` 的 `attach`。
+- 下载默认落在 `./whut-resources`，文本默认落在 `./whut-text`，可用 `--out` 改。
+
 ## Commands
 
 | Command | Purpose |
@@ -214,8 +242,8 @@ live paper of each new type. See `references/testing.md`.
   但仍是逐槽位精确校验：第一次遇到新题型先跑 `state` → `fill` → `state`，任何 `FAIL` 都停下。
 - 自主观看的 MP4 必须真实播放累计（16× 可加速），seek 到末尾不计入；已截止的观看任务无法补做。
 - No captcha/login handling; the user must log in manually.
-- No PPT/PDF text extraction — exercise-based questions such as “第五章和第六章习题” must be
-  answered from the textbook.
+- 资源文本抽取走 `resources.mjs get --text` / `text`：OOXML 内置解压；旧版 `.ppt/.doc` 与 `html→docx`
+  需要本机 LibreOffice，PDF 需要 `pdftotext`。图片里的文字仍无法提取。
 - No answer generation: the agent (or a human) still has to solve the questions. The driver only
   fills, verifies, and submits.
 - No score/result scraping or second-attempt retry strategy.
@@ -263,6 +291,7 @@ scripts/
   watch.mjs       任务卡  list/open/run/status（按 course+due 定位，自主观看批量完成）
   unlock.mjs      攻坚    tasks/force/clock/sniff/dump/replay/eval/goto
   quiz.mjs        题库    dump/prompt/lookup/save/record/stats
+  resources.mjs   资源/任务 courses/tasks/files/get/text/docx/paper
   netlog.mjs      常驻抓包 → JSONL（只记 /api/ 与本站域名）
   x.mjs           页面内 JS 执行器（配合 scripts/*.js 探针）
   probe-paper.js  单卷诊断：ids / 时间窗 / answer_record_id / createRecord 结果
@@ -277,6 +306,7 @@ scripts/
 ```bash
 node scripts/unlock.mjs goto "<paperUrl>"     # 1. 打开卷子（已截止的也能开）
 node scripts/quiz.mjs record                 # 2. 只看答题记录，不创建
+node scripts/resources.mjs paper <node_id> --course <课程>   # 2.5 离线读题（不打开卷子、不启动计时）
 node scripts/quiz.mjs prompt                 # 3. 出待答清单，交给 AI 或人
 node scripts/quiz.mjs lookup > answers.json  # 4. 命中的直接成答案文件
 node scripts/whut.mjs fill answers.json      # 5. 填 → 人工核对

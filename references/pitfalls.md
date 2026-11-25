@@ -312,3 +312,55 @@ Assertion failed: !(handle->flags & UV_HANDLE_CLOSING)
 
 截止时间过了以后，点「点我完成任务」会提示"任务已截止，无法设为完成"，且卡片仍留在待完成列表里。
 这不是脚本问题，立刻停止重试即可；`watch.mjs` 会把这个提示写进结果的 `hint` 字段。
+
+## 29. 资源原件：预览接口不等于下载接口
+
+`/resource/` 页把 PPT 交给 ow365 预览，页面里能看到 `/cloud/file_access/<quote_id>`，但那是**预览**接口：
+PPT/PDF 会返回 307 字节的 HTML「该资源不支持预览」，带 `?download=1` 直接 400。
+
+真正的下载接口是 `GET /api/jx-oresource/cloud/file_down/<quote_id>/v2?filename=<名字>`，返回
+`data.download_url`（OSS 签名直链）和 `data.size`。`/v3` 是加密串（base64 + 前端 wasm 解码），`/v1` 已废弃报
+`3003182`。别再一个个试路径了，直接用 `resources.mjs get`。
+
+## 30. 资源查看页会挂起 Runtime.evaluate
+
+`/resource/<group>/<parent>/<node>` 这类页会加载 ow365 的 iframe，之后 `Runtime.evaluate` 经常永久不返回
+（不是超时，是排不上队）。所以在这类页上不要 eval，也不要指望 `whut.mjs state`。
+
+取数一律：CDP `Network.getCookies` 拿 cookie → Node `fetch` + `Authorization: Bearer <token>`。
+`resources.mjs` 全篇都是这个结构，`quiz.mjs` 那种 `ensurePageApi` 路线只适合卷子页。
+
+## 31. 打开卷子就计时，读题不要开卷
+
+访问 `course_paper` URL 会立刻 `POST /survey/createRecord/v2`，`limit_time` 从那一刻开始倒计时。
+只想看题目的话用 `resources.mjs paper`：`queryResource/v3` 的 `data.resource.questions` 就是整张卷子，
+不创建记录、不计时。
+
+## 32. 抽样卷重做 = 换一套题
+
+`queryStuPaper/v2` 里：`is_sampling=2` 是抽样卷，`random_rule` 给出各题型抽几题，
+`questions[]` 的长度是题库总量，`answer_record.sampling_questions` 才是本场抽中的题号。
+
+实测一份卷：题库 100 题、抽 10 单选 + 10 多选 + 10 判断。这种卷子"再交一次"会重新抽题，
+把上一套答案原样提交等于自杀。判断标准：`is_sampling=2` 且题库量远大于抽样量 → 不要重交。
+
+## 33. 提交后页面会停在「提交中」
+
+`submit` 返回 `SUBMITTED {"success":true}`、也弹了「提交成功」，页面头部仍可能长期显示
+「状态：提交中 / 未提交」。不要慌，也不要刷新卷子页。
+
+以接口为准：`queryStuPaper/v2` 的 `answer_record.status=2` + `answer_time` 有值 = 已收卷；
+`score/actual_score` 是得分；`answer_record.answers` 是逐题记录，`correct=2` 判对、`1` 判错。
+`answers` 字段是**数组**不是 JSON 字符串，别二次 `JSON.parse`。
+
+## 34. Windows 下 URL.pathname 是百分号编码
+
+Node 里 `new URL(...).pathname` 对中文文件名会返回 `%E7%BB%AA...`，直接丢给 `tar`/`fs` 会失败。
+统一用 `fileURLToPath()`；拼临时目录时也别用 `pathname.replace(/^\//,"")`。
+
+## 35. 附件题的自造文件
+
+type 7 是附件题，控件只要文件。用 LibreOffice 把 HTML 转 docx：
+`soffice --headless --convert-to "docx:MS Word 2007 XML" --outdir <dir> answer.html`。
+注意必须写 `docx:MS Word 2007 XML` 这个过滤器名，只写 `docx` 会报 `no export filter`。
+`fill` 的 attach 分支用 `DOM.setFileInputFiles`，传绝对路径，等文件名出现在页面上才算成功。

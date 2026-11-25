@@ -74,3 +74,33 @@ quiz with 2 attempts), with the user's approval:
 - `watch.mjs` keeps a keep-alive home tab and never closes the last page target.
 - The script never calls `Page.bringToFront`, so it does not steal OS focus.
 - The script never opens DevTools and never reloads a paper page.
+
+## Verified against the live site (2026-11, resources.mjs)
+
+同一周的第二次实盘，验证了新增的资源/任务/读题链路：
+
+- `resources.mjs courses` → 11 门在修课程，`id + site_name` 正确。
+- `resources.mjs tasks --due <date>` → 跨课程 125 条任务里筛出 41 条未完成，截止时间与任务页一致；
+  两门课的 4 条作业/测练被准确识别（`type=7`，`finish=0`）。
+- `resources.mjs files --course <课>` → 按 `queryCourseResources/v2` 还原章节路径；
+  `get --text` 下载 19 份 PPTX（合计约 119 MB）并抽文本，`ok=19/19`。
+  旧版 `.ppt` 经 LibreOffice 转 pptx 后同样能抽（47 页 / 1.7 万字）。
+- `resources.mjs paper <node> --course <课>` → 不创建记录即可读出 4 道题（3 简答 + 1 单选）与分值，
+  输出试卷页 URL；同一接口对已提交的卷返回 `answer_record`，可确认状态。
+- `resources.mjs docx answer.html --out answer.docx` → 生成可上传的附件；`whut.mjs fill` 的 attach 分支
+  上传后回读文件名 `OK`。
+- 两份作业（38 分 4 题、10 分 5 题）完整走完 `paper → fill → submit`，服务端
+  `task_flow_record` 出现 `flow_type=2`，页面头部仍显示「提交中」但记录已落库。
+
+## 抽样卷判定（2026-11）
+
+- 固定卷：`is_sampling=1`、`random_rule=null`，`queryStuPaper.questions` 就是全部题目。
+- 抽样卷：`is_sampling=2`，`random_rule` 形如 10 单选 + 10 多选 + 10 判断，`questions[]` 是题库（100 题），
+  `answer_record.sampling_questions` 是本场抽中的 30 个题号。
+- 结论：抽样卷的第二次作答会重新抽题，不能复交上一套答案；`repetition` 只是次数上限。
+
+## 提交后的接口判定（2026-11）
+
+- `answer_record.status=2` + `answer_time` 有值 = 已提交；`score` / `actual_score` = 得分。
+- `answer_record.answers` 是数组，`correct=2` 判对、`1` 判错，`score` 是该题得分。
+- 页面头部「提交中」是前端状态，可能一直不刷新；不要 reload 卷子页去催它。
